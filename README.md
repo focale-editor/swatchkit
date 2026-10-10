@@ -4,13 +4,14 @@
 
 # SwatchKit
 
-SwatchKit is a pure Dart codec for Adobe color swatch libraries: Photoshop swatches (`.aco`), Adobe Swatch Exchange (`.ase`), and Photoshop color tables (`.act`). It keeps the exact stored components, converts them to and from [`pscore`](https://pub.dev/packages/pscore) colors, and has no Flutter or native-code dependency.
+SwatchKit is a pure Dart codec for Adobe color swatch libraries: Photoshop swatches (`.aco`), Adobe Swatch Exchange (`.ase`), Photoshop color tables (`.act`), and color books (`.acb`). It keeps the exact stored components, converts them to and from [`pscore`](https://pub.dev/packages/pscore) colors, and has no Flutter or native-code dependency.
 
 ## Supported data
 
 - **ACO**: version 1 and named version 2 sections; RGB, HSB, CMYK, Lab, grayscale, and wide CMYK colors; Pantone, Focoltone, Trumatch, Toyo, and HKS references kept as raw components.
 - **ASE**: version 1.0 libraries with groups, RGB, CMYK, Lab, and gray colors, and global, spot, or normal color types.
 - **ACT**: 256-entry RGB tables, with the optional color count and transparent index.
+- **ACB**: version 1 color books in RGB, CMYK, or Lab, with catalog codes, page layout, localized titles, and the spot or process marker.
 - Configurable limits for file size, entry counts, and name lengths, with strict or tolerant handling of recoverable defects.
 
 The models expose the stored color components separately from their `PsColor` conversion. Matching-system references remain accessible even when no process-color conversion is available.
@@ -105,7 +106,7 @@ dart run tool/inspect_swatches.dart swatches.aco palette.ase colors.act
 
 ## Current boundaries
 
-Color books (`.acb`) are not supported. Conversions to sRGB use textbook formulas rather than ICC profiles.
+Conversions to sRGB use textbook formulas rather than ICC profiles, so color-book colors are approximations of the printed inks.
 
 Tolerant decoding does not guarantee lossless reconstruction: unknown ASE blocks and unrecognized trailing bytes are skipped, ACO sections are rebuilt from the effective swatch list, and unused ACT slots are regenerated. See [docs/SWATCHES.md](docs/SWATCHES.md) for the binary layouts, compatibility rules, encoding boundaries, and validation corpus.
 

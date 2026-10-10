@@ -125,6 +125,12 @@ final class AcoFile {
   /// Highest section version read: 2 when names were available, otherwise 1.
   final int version;
 
+  /// Whether a version 1 section precedes the named one.
+  ///
+  /// Photoshop writes both sections, but some of its own libraries hold only
+  /// the named section; encoding keeps whichever layout was read.
+  final bool includesVersionOne;
+
   /// Recoverable compatibility issues encountered while decoding.
   final List<SwatchWarning> warnings;
 
@@ -132,6 +138,7 @@ final class AcoFile {
   AcoFile({
     required List<AcoSwatch> swatches,
     this.version = 2,
+    this.includesVersionOne = true,
     List<SwatchWarning> warnings = const [],
   }) : swatches = List<AcoSwatch>.unmodifiable(swatches),
        warnings = List<SwatchWarning>.unmodifiable(warnings);

@@ -52,6 +52,7 @@ final class ActDecoder extends Converter<List<int>, ActFile> {
         colors: [for (int index = 0; index < count; index++) ActColor(red: bytes[index * 3], green: bytes[index * 3 + 1], blue: bytes[index * 3 + 2])],
         transparentIndex: transparentIndex,
         hasTrailer: bytes.length > _tableBytes,
+        unusedEntries: Uint8List.sublistView(bytes, count * 3, _tableBytes),
         warnings: context.warnings,
       );
     });
@@ -86,7 +87,12 @@ final class ActEncoder extends Converter<ActFile, List<int>> {
         ..writeUint8(color.green)
         ..writeUint8(color.blue);
     }
-    writer.writeZeros((256 - count) * 3);
+    final int unusedBytes = (256 - count) * 3;
+    if (file.unusedEntries.length == unusedBytes) {
+      writer.writeBytes(file.unusedEntries);
+    } else {
+      writer.writeZeros(unusedBytes);
+    }
     if (file.hasTrailer) {
       writer
         ..writeUint16(count)

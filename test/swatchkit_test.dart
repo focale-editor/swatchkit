@@ -6,7 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:swatchkit/swatchkit.dart';
 import 'package:test/test.dart';
 
-/// Exercises the ACO, ASE, and ACT codecs.
+/// Exercises the ACO, ASE, ACT, and ACB codecs.
 void main() {
   group('ACO', () {
     test('prefers named version 2 swatches and re-encodes them identically', () {
@@ -164,6 +164,74 @@ void main() {
       check(ActDecoder.decode(Uint8List.fromList([...Uint8List(768), 0, 2, 0, 5])).warnings).length.equals(1);
       check(() => ActEncoder.encode(ActFile(colors: const []))).throws<SwatchWriteException>();
       check(() => ActColor(red: 256, green: 0, blue: 0)).throws<SwatchWriteException>();
+    });
+  });
+
+  group('ACB', () {
+    /// A two-color book in [model], laid out as Photoshop writes one.
+    AcbFile book(AcbColorModel model, List<List<int>> components) => AcbFile(
+      identifier: 3000,
+      title: r'$$$/colorbook/Test/title=Test Colors',
+      prefix: 'TEST ',
+      postfix: ' C',
+      description: r'$$$/colorbook/Test/description=Copyright',
+      pageSize: 7,
+      pageSelectorOffset: 3,
+      colorModel: model,
+      colors: [
+        AcbColor(name: '100', code: '100   ', components: components[0]),
+        AcbColor(name: '', code: '      ', components: components[1]),
+      ],
+      trailingData: Uint8List.fromList('spflspot'.codeUnits),
+    );
+
+    test('round-trips a book and names its colors as Photoshop shows them', () {
+      final Uint8List bytes = AcbEncoder.encode(
+        book(AcbColorModel.lab, [
+          [255, 128, 128],
+          [0, 128, 128],
+        ]),
+      );
+
+      final AcbFile decoded = AcbDecoder.decode(bytes, options: const SwatchDecodeOptions(mode: SwatchDecodeMode.strict));
+
+      check(AcbFile.displayText(decoded.title)).equals('Test Colors');
+      check(decoded.displayName(decoded.colors.first)).equals('TEST 100 C');
+      check(decoded.spot).equals(true);
+      check(decoded.colors.first.toColor(decoded.colorModel).toRgb()!.red).isCloseTo(255, 1);
+      check(decoded.colors.last.toColor(decoded.colorModel).toRgb()!.red).isCloseTo(0, 1);
+      check(AcbEncoder.encode(decoded)).deepEquals(bytes);
+    });
+
+    test('reads inverted CMYK inks', () {
+      final AcbFile decoded = AcbDecoder.decode(
+        AcbEncoder.encode(
+          book(AcbColorModel.cmyk, [
+            [255, 255, 0, 255],
+            [255, 255, 255, 255],
+          ]),
+        ),
+      );
+
+      final ({double red, double green, double blue}) yellow = decoded.colors.first.toColor(decoded.colorModel).toRgb()!;
+      check([yellow.red.round(), yellow.green.round(), yellow.blue.round()]).deepEquals([255, 255, 0]);
+    });
+
+    test('rejects a missing signature or an unknown color model', () {
+      final Uint8List bytes = AcbEncoder.encode(
+        book(AcbColorModel.rgb, [
+          [1, 2, 3],
+          [4, 5, 6],
+        ]),
+      );
+      final AcbFile source = AcbDecoder.decode(bytes);
+      // Signature, version and identifier, four texts, then the count, page size and selector offset.
+      final int modelOffset = 8 + [source.title, source.prefix, source.postfix, source.description].fold<int>(0, (sum, text) => sum + 4 + 2 * text.length) + 6;
+      final Uint8List unknownModel = Uint8List.fromList(bytes);
+      ByteData.sublistView(unknownModel).setUint16(modelOffset, 9);
+
+      check(() => AcbDecoder.decode(Uint8List.fromList([0, 1, 2, 3]))).throws<SwatchFormatException>();
+      check(() => AcbDecoder.decode(unknownModel)).throws<SwatchFormatException>();
     });
   });
 }

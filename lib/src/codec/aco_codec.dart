@@ -48,7 +48,7 @@ final class AcoDecoder extends Converter<List<int>, AcoFile> {
       if (!reader.isAtEnd) {
         context.issue('${reader.remaining} unrecognized trailing bytes remain after the ACO swatches', reader.offset);
       }
-      return AcoFile(swatches: swatches, version: version, warnings: context.warnings);
+      return AcoFile(swatches: swatches, version: version, includesVersionOne: firstVersion == 1, warnings: context.warnings);
     });
   }
 
@@ -82,13 +82,14 @@ final class AcoEncoder extends Converter<AcoFile, List<int>> {
   Uint8List convert(AcoFile input) => encode(input);
 
   /// Encodes [file] as a version 1 section, followed by a named version 2
-  /// section unless [file] has version 1.
+  /// section unless [file] has version 1; [AcoFile.includesVersionOne] can
+  /// leave out the version 1 section of a named library.
   static Uint8List encode(AcoFile file) {
     if (file.swatches.length > 0xffff) {
       throw SwatchWriteException(message: 'An ACO library holds at most 65535 swatches, not ${file.swatches.length}');
     }
     final PsBinaryWriter writer = PsBinaryWriter();
-    for (final int version in [1, if (file.version >= 2) 2]) {
+    for (final int version in [if (file.includesVersionOne || file.version < 2) 1, if (file.version >= 2) 2]) {
       writer
         ..writeUint16(version)
         ..writeUint16(file.swatches.length);

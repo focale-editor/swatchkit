@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pscore/pscore.dart';
 import 'package:swatchkit/src/model/swatch_options.dart';
 
@@ -53,6 +55,11 @@ final class ActFile {
   /// transparent entry; the trailer is otherwise optional.
   final bool hasTrailer;
 
+  /// Bytes filling the unused table entries; Photoshop writes `0xFF`.
+  ///
+  /// Empty means zeros, as for a newly created table.
+  final Uint8List unusedEntries;
+
   /// Recoverable compatibility issues encountered while decoding.
   final List<SwatchWarning> warnings;
 
@@ -61,8 +68,10 @@ final class ActFile {
     required List<ActColor> colors,
     this.transparentIndex,
     bool? hasTrailer,
+    Uint8List? unusedEntries,
     List<SwatchWarning> warnings = const [],
   }) : colors = List<ActColor>.unmodifiable(colors),
+       unusedEntries = Uint8List.fromList(unusedEntries ?? const []).asUnmodifiableView(),
        hasTrailer = hasTrailer ?? (colors.length != 256 || transparentIndex != null),
        warnings = List<SwatchWarning>.unmodifiable(warnings);
 }

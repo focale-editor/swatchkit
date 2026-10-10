@@ -1,6 +1,6 @@
 # Swatch library format support
 
-This document describes the ACO, ASE, and ACT structures accepted by SwatchKit, their color conventions, and the boundaries of source reconstruction. Multibyte numeric values are big-endian.
+This document describes the ACO, ASE, ACT, and ACB structures accepted by SwatchKit, their color conventions, and the boundaries of source reconstruction. Multibyte numeric values are big-endian.
 
 ## Supported containers
 
@@ -9,6 +9,7 @@ This document describes the ACO, ASE, and ACT structures accepted by SwatchKit, 
 | Photoshop swatches (`.aco`) | `AcoFile` | Process colors and matching-system references, with optional names |
 | Adobe Swatch Exchange (`.ase`) | `AseFile` | Named swatches and groups, with color types |
 | Photoshop color table (`.act`) | `ActFile` | An indexed RGB palette with an optional transparent entry |
+| Photoshop color book (`.acb`) | `AcbFile` | A matching system's named colors, with catalog codes and page layout |
 
 Call the decoder matching the file format. Each format also has an encoder and a `dart:convert` codec for complete in-memory files.
 
@@ -65,6 +66,25 @@ The decoder accepts exactly 768 or 772 bytes. Without a trailer, all 256 entries
 
 In tolerant mode, an invalid count is reported and treated as 256; an out-of-range transparent index is reported and ignored. Strict mode rejects either issue.
 
+## ACB layout
+
+Color books start with the signature `8BCB`. Texts are a 32-bit count of UTF-16 code units followed by the code units, without a terminator.
+
+| Field | Size | Meaning |
+| --- | ---: | --- |
+| Signature | 4 bytes | `8BCB` |
+| Version | 2 bytes | 1 |
+| Identifier | 2 bytes | Book number, such as 3000 for ANPA |
+| Title, prefix, postfix, description | 4 texts | Often Adobe localization keys such as `$$$/colorbook/ANPA/title=ANPA Color` |
+| Color count | 2 bytes | Number of colors, page placeholders included |
+| Page size | 2 bytes | Colors per page of Photoshop's picker |
+| Page selector offset | 2 bytes | Index of the color representing each page |
+| Color model | 2 bytes | 0 for RGB, 2 for CMYK, 7 for Lab |
+| Colors | variable | Name text, six ASCII catalog-code bytes, then three or four component bytes |
+| Spot marker | 8 bytes, optional | `spflspot` for spot inks or `spflproc` for process inks |
+
+RGB components are 8-bit values. CMYK components are inverted ink coverages: 255 means no ink and 0 full ink. Lab stores lightness scaled from 0–100 to 0–255 and a and b offset by 128. `AcbColor.toColor` returns the matching `PsColor`; `AcbFile.displayText` strips a localization key and `AcbFile.displayName` joins the prefix, name, and postfix as Photoshop shows them. Placeholder colors have an empty name and a blank code. Every field, including the optional marker, round-trips.
+
 ## Color conversions
 
 `toColor()` exposes process colors in Photoshop descriptor units:
@@ -119,6 +139,8 @@ The bundled fixtures exercise decoding without warnings and byte-exact re-encodi
 
 - [`adobe-aco`](https://github.com/szydlovski/adobe-aco) (MIT): a named version 2 ACO, kept as a test fixture;
 - [`swatch`](https://github.com/nsfmc/swatch) (MIT): `sampler.ase` and `solarized.ase`, covering groups and process or spot colors.
+
+All 100 color books shipped with Photoshop CS1 to CS5 (RGB, CMYK, and Lab; with and without the spot marker) decode in strict mode and re-encode byte for byte; Adobe's books are not bundled.
 
 Synthetic tests also cover process-color conversions, matching-system references, group recovery, ACT transparency, and malformed input. Fixture provenance is recorded in [test/fixtures/NOTICE.txt](../test/fixtures/NOTICE.txt).
 
