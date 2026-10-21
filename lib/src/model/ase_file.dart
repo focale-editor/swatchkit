@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pscore/pscore.dart';
 import 'package:swatchkit/src/model/swatch_options.dart';
 
@@ -63,13 +65,27 @@ final class AseSwatch extends AseEntry {
   /// Sharing behavior, or `null` when the stored identifier is unknown.
   final AseColorType? type;
 
+  /// Original identifier for an unknown sharing behavior.
+  final int? rawTypeCode;
+
+  /// Uninterpreted component bytes for an unknown color model.
+  final Uint8List? rawComponents;
+
+  /// Extensions following the known color type.
+  final Uint8List trailingData;
+
   /// Creates a swatch from stored values.
   AseSwatch({
     required super.name,
     required this.modelCode,
     required List<double> values,
     this.type = AseColorType.global,
-  }) : values = List<double>.unmodifiable(values);
+    this.rawTypeCode,
+    Uint8List? rawComponents,
+    Uint8List? trailingData,
+  }) : values = List<double>.unmodifiable(values),
+       rawComponents = rawComponents == null ? null : Uint8List.fromList(rawComponents).asUnmodifiableView(),
+       trailingData = Uint8List.fromList(trailingData ?? Uint8List(0)).asUnmodifiableView();
 
   /// Converts a process [color] to the matching ASE model.
   ///
@@ -125,6 +141,21 @@ final class AseGroup extends AseEntry {
   }) : swatches = List<AseSwatch>.unmodifiable(swatches);
 }
 
+/// An uninterpreted ASE block retained at its original block position.
+final class AseUnknownBlock {
+  /// Original zero-based position among all blocks, including group delimiters.
+  final int index;
+
+  /// Unsigned 16-bit block identifier.
+  final int type;
+
+  /// Complete uninterpreted payload.
+  final Uint8List data;
+
+  /// Creates an immutable extension block.
+  AseUnknownBlock({required this.index, required this.type, required Uint8List data}) : data = Uint8List.fromList(data).asUnmodifiableView();
+}
+
 /// Complete decoded contents of one Adobe Swatch Exchange `.ase` library.
 final class AseFile {
   /// Major format version, normally 1.
@@ -139,13 +170,23 @@ final class AseFile {
   /// Recoverable compatibility issues encountered while decoding.
   final List<SwatchWarning> warnings;
 
+  /// Unknown blocks, positioned relative to the regenerated known block stream.
+  final List<AseUnknownBlock> unknownBlocks;
+
+  /// Bytes following the declared block count.
+  final Uint8List trailingData;
+
   /// Creates an immutable swatch-exchange library.
   AseFile({
     this.majorVersion = 1,
     this.minorVersion = 0,
     required List<AseEntry> entries,
+    List<AseUnknownBlock> unknownBlocks = const [],
+    Uint8List? trailingData,
     List<SwatchWarning> warnings = const [],
   }) : entries = List<AseEntry>.unmodifiable(entries),
+       unknownBlocks = List<AseUnknownBlock>.unmodifiable(unknownBlocks),
+       trailingData = Uint8List.fromList(trailingData ?? Uint8List(0)).asUnmodifiableView(),
        warnings = List<SwatchWarning>.unmodifiable(warnings);
 
   /// Every swatch with the name of its enclosing group, or `null` at the top level.

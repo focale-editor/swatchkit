@@ -43,6 +43,7 @@ final class AseDecoder extends Converter<List<int>, AseFile> {
       final int count = reader.readUint32();
       context.checkCount(count, 8);
       final List<AseEntry> entries = [];
+      final List<AseUnknownBlock> unknownBlocks = [];
       ({String name, List<AseSwatch> swatches})? group;
       for (int index = 0; index < count; index++) {
         context.entryIndex = index;
@@ -71,7 +72,8 @@ final class AseDecoder extends Converter<List<int>, AseFile> {
               group = null;
             }
           default:
-            context.issue('Unknown ASE block type 0x${type.toRadixString(16)} was skipped', blockOffset);
+            context.issue('Unknown ASE block type 0x${type.toRadixString(16)} was preserved', blockOffset);
+            unknownBlocks.add(AseUnknownBlock(index: index, type: type, data: block.readBytes(block.remaining)));
         }
       }
       context.entryIndex = null;
@@ -82,7 +84,14 @@ final class AseDecoder extends Converter<List<int>, AseFile> {
       if (!reader.isAtEnd) {
         context.issue('${reader.remaining} unrecognized trailing bytes remain after the ASE blocks', reader.offset);
       }
-      return AseFile(majorVersion: majorVersion, minorVersion: minorVersion, entries: entries, warnings: context.warnings);
+      return AseFile(
+        majorVersion: majorVersion,
+        minorVersion: minorVersion,
+        entries: entries,
+        unknownBlocks: unknownBlocks,
+        trailingData: reader.readBytes(reader.remaining),
+        warnings: context.warnings,
+      );
     });
   }
 
@@ -95,13 +104,21 @@ final class AseDecoder extends Converter<List<int>, AseFile> {
     if (model == AseColorModel.unknown) {
       context.issue('ASE color model "$modelCode" is not recognized', modelOffset);
     }
-    final int componentCount = model == AseColorModel.unknown ? (block.remaining - 2) ~/ 4 : model.componentCount;
-    final List<double> values = [for (int index = 0; index < componentCount; index++) block.readFloat32()];
+    final Uint8List? rawComponents = model == AseColorModel.unknown ? block.readBytes(block.remaining - 2) : null;
+    final List<double> values = [for (int index = 0; index < model.componentCount; index++) block.readFloat32()];
     final int typeId = block.readUint16();
     if (typeId >= AseColorType.values.length) {
       context.issue('ASE color type $typeId is not recognized', block.baseOffset + block.offset - 2);
     }
-    return AseSwatch(name: name, modelCode: modelCode, values: values, type: typeId < AseColorType.values.length ? AseColorType.values[typeId] : null);
+    return AseSwatch(
+      name: name,
+      modelCode: modelCode,
+      values: values,
+      type: typeId < AseColorType.values.length ? AseColorType.values[typeId] : null,
+      rawTypeCode: typeId,
+      rawComponents: rawComponents,
+      trailingData: block.readBytes(block.remaining),
+    );
   }
 }
 
@@ -126,12 +143,26 @@ final class AseEncoder extends Converter<AseFile, List<int>> {
           ],
         },
     ];
+    final List<AseUnknownBlock> unknown = [...file.unknownBlocks]..sort((a, b) => a.index.compareTo(b.index));
+    final List<Uint8List> ordered = [];
+    int nextKnown = 0;
+    for (final AseUnknownBlock block in unknown) {
+      if (block.index < 0 || block.type < 0 || block.type > 0xffff || const [_colorEntry, _groupStart, _groupEnd].contains(block.type)) {
+        throw const SwatchWriteException(message: 'Invalid opaque ASE block position or type');
+      }
+      while (ordered.length < block.index && nextKnown < blocks.length) {
+        ordered.add(blocks[nextKnown++]);
+      }
+      ordered.add(_block(block.type, (writer) => writer.writeBytes(block.data)));
+    }
+    ordered.addAll(blocks.skip(nextKnown));
     final PsBinaryWriter writer = PsBinaryWriter()
       ..writeString('ASEF')
       ..writeUint16(file.majorVersion)
       ..writeUint16(file.minorVersion)
-      ..writeUint32(blocks.length);
-    blocks.forEach(writer.writeBytes);
+      ..writeUint32(ordered.length);
+    ordered.forEach(writer.writeBytes);
+    writer.writeBytes(file.trailingData);
     return writer.takeBytes();
   }
 
@@ -158,14 +189,22 @@ final class AseEncoder extends Converter<AseFile, List<int>> {
 
   /// Writes one color-entry payload.
   static void _writeSwatch(PsBinaryWriter writer, AseSwatch swatch) {
-    final AseColorType? type = swatch.type;
-    if (swatch.modelCode.length != 4 || type == null) {
+    final int? type = swatch.type?.index ?? swatch.rawTypeCode;
+    if (swatch.modelCode.length != 4 || type == null || type < 0 || type > 0xffff) {
       throw SwatchWriteException(message: 'ASE swatch "${swatch.name}" has no writable color model or type');
     }
     _writeName(writer, swatch.name);
     writer.writeString(swatch.modelCode);
-    swatch.values.forEach(writer.writeFloat32);
-    writer.writeUint16(type.index);
+    if ((swatch.model, swatch.rawComponents) case (AseColorModel.unknown, final Uint8List components)) {
+      writer.writeBytes(components);
+    } else {
+      if (swatch.model != AseColorModel.unknown && swatch.values.length != swatch.model.componentCount) {
+        throw const SwatchWriteException(message: 'ASE component count does not match its color model');
+      }
+      swatch.values.forEach(writer.writeFloat32);
+    }
+    writer.writeUint16(type);
+    writer.writeBytes(swatch.trailingData);
   }
 }
 

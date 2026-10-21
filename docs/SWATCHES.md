@@ -29,7 +29,11 @@ A file holds one or two sections. Each starts with a 16-bit version and a 16-bit
 
 `AcoSwatch.colorSpaceId` and `components` retain the original numeric values. `toColor()` converts supported process colors to `PsColor`; matching-system references and unknown color spaces return `null` while their raw values remain accessible.
 
-`AcoFile.swatches` contains the effective section only. It does not retain separate version 1 and version 2 lists when both exist.
+`AcoFile.swatches` contains the effective section. When both sections exist,
+`versionOneSwatches` retains the independent first section, including differing
+colors or counts. `includesVersionOne` preserves a version 2-only source.
+`trailingData` retains unrecognized bytes. When authoring a new paired library,
+leave `versionOneSwatches` null to write both sections from `swatches`.
 
 ## ASE layout
 
@@ -50,7 +54,15 @@ The header is `ASEF`, a 16-bit major and minor version (1.0), and a 32-bit block
 
 Groups do not nest. SwatchKit closes an open group when another one starts, and reports it.
 
-`AseFile.entries` preserves the order of top-level swatches and `AseGroup` values. `AseFile.swatches` provides flattened iteration with each swatch's enclosing group name. `AseSwatch.modelCode`, `values`, and `type` expose the stored color representation; an unknown type is reported and represented by `null`.
+`AseFile.entries` preserves the order of top-level swatches and `AseGroup` values. `AseFile.swatches` provides flattened iteration with each swatch's enclosing group name. `AseSwatch.modelCode`, `values`, and `type` expose the stored color representation; an unknown type is reported and represented by `null`, with its original code
+in `rawTypeCode`. Unknown models keep their component bytes in `rawComponents`
+without guessing the number or representation of components. `trailingData`
+retains extensions after a known swatch's type.
+
+`AseFile.unknownBlocks` retains opaque blocks with their original block indices,
+including positions within groups. The encoder reinserts them at those indices;
+when deleting or regrouping entries, adjust those indices if their intended
+attachment changes. Whole-file trailing data is also retained.
 
 ## ACT layout
 
@@ -111,19 +123,19 @@ The shared `SwatchDecodeOptions` bounds input size with `maxFileBytes`, swatch o
 
 ## Encoding and preservation boundaries
 
-Encoders write the current semantic models. They do not preserve complete source files or arbitrary trailing bytes.
+Encoders rebuild the current semantic models and retain the explicit opaque fields. They do not retain an independent complete source-file copy.
 
 | Format | Output behavior |
 | --- | --- |
 | ACO | Writes a version 1 section, followed by a named version 2 section when `AcoFile.version` is at least 2 |
 | ASE | Rebuilds block lengths and counts from `AseFile.entries`, including group start and end blocks |
-| ACT | Writes 256 RGB slots, fills unused slots with black, and includes the count/transparency trailer when `hasTrailer` is true |
+| ACT | Writes active colors and preserved inactive slots; new unused slots default to black; includes the trailer when `hasTrailer` is true |
 
 Supported samples can re-encode byte for byte, but this is not a general guarantee for tolerant input:
 
-- ACO retains one effective swatch list, so differing source sections are not independently reconstructed. A version 2-only source is written as a version 1 plus version 2 pair.
-- ASE skips unknown blocks and trailing bytes, and normalizes unbalanced groups. An unknown color type cannot be encoded until the caller supplies a supported type.
-- ACT retains active entries only. Unused source slots are replaced with black, and invalid trailer values are normalized during tolerant decoding.
+- ACO retains both source sections independently and preserves version 2-only files.
+- ASE retains unknown blocks, models and types, but still normalizes unbalanced groups; extension bytes on group delimiters are not modeled.
+- ACT retains inactive palette bytes through its existing source table. Invalid trailer values are normalized during tolerant decoding.
 
 ACO output is limited to 65,535 swatches. ACT output requires 1–256 colors and a transparent index within that list; a table without a trailer must contain 256 opaque colors. The encoders report these model errors through `SwatchWriteException`.
 
@@ -131,7 +143,7 @@ ACO output is limited to 65,535 swatches. ACT output requires 1–256 colors and
 
 Keep palette decoding outside the presentation layer. Retain names, source order, ASE groups and color types, and the original component values alongside any preview color. A `null` process-color conversion means the application needs another way to interpret or display that entry.
 
-The models are immutable. Build a new `AcoFile`, `AseFile`, or `ActFile` when editing; use `AseGroup` to retain grouping and `ActFile.transparentIndex` to retain indexed transparency. SwatchKit does not support Adobe Color Book (`.acb`) files or perform color-managed rendering.
+The models are immutable. Build a new `AcoFile`, `AseFile`, or `ActFile` when editing; use `AseGroup` to retain grouping and `ActFile.transparentIndex` to retain indexed transparency. Use `AcbFile` for Adobe Color Book files. SwatchKit does not perform color-managed rendering.
 
 ## Validation corpus
 

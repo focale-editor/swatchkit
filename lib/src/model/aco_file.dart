@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:pscore/pscore.dart';
 import 'package:swatchkit/src/model/swatch_options.dart';
 
@@ -134,12 +136,22 @@ final class AcoFile {
   /// Recoverable compatibility issues encountered while decoding.
   final List<SwatchWarning> warnings;
 
+  /// Independent version 1 entries when the source also contains version 2.
+  final List<AcoSwatch>? versionOneSwatches;
+
+  /// Unrecognized bytes following the last supported section.
+  final Uint8List trailingData;
+
   /// Creates an immutable swatch library.
   AcoFile({
     required List<AcoSwatch> swatches,
     this.version = 2,
     this.includesVersionOne = true,
+    List<AcoSwatch>? versionOneSwatches,
+    Uint8List? trailingData,
     List<SwatchWarning> warnings = const [],
   }) : swatches = List<AcoSwatch>.unmodifiable(swatches),
+       versionOneSwatches = versionOneSwatches == null ? null : List<AcoSwatch>.unmodifiable(versionOneSwatches),
+       trailingData = Uint8List.fromList(trailingData ?? Uint8List(0)).asUnmodifiableView(),
        warnings = List<SwatchWarning>.unmodifiable(warnings);
 }

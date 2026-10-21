@@ -31,6 +31,8 @@ final class AcoDecoder extends Converter<List<int>, AcoFile> {
       }
       List<AcoSwatch> swatches = _readSection(reader, firstVersion, context);
       int version = firstVersion;
+      List<AcoSwatch>? versionOneSwatches;
+      int trailingOffset = reader.offset;
       if (firstVersion == 1 && reader.remaining >= 4) {
         final int sectionOffset = reader.offset;
         final int secondVersion = reader.readUint16();
@@ -39,7 +41,9 @@ final class AcoDecoder extends Converter<List<int>, AcoFile> {
           if (named.length != swatches.length) {
             context.issue('The ACO version 2 section holds ${named.length} swatches instead of ${swatches.length}', sectionOffset);
           }
+          versionOneSwatches = swatches;
           swatches = named;
+          trailingOffset = reader.offset;
           version = 2;
         } else {
           context.issue('Unexpected ACO section version $secondVersion', sectionOffset);
@@ -48,7 +52,14 @@ final class AcoDecoder extends Converter<List<int>, AcoFile> {
       if (!reader.isAtEnd) {
         context.issue('${reader.remaining} unrecognized trailing bytes remain after the ACO swatches', reader.offset);
       }
-      return AcoFile(swatches: swatches, version: version, includesVersionOne: firstVersion == 1, warnings: context.warnings);
+      return AcoFile(
+        swatches: swatches,
+        version: version,
+        includesVersionOne: firstVersion == 1,
+        versionOneSwatches: versionOneSwatches,
+        trailingData: Uint8List.sublistView(bytes, trailingOffset),
+        warnings: context.warnings,
+      );
     });
   }
 
@@ -90,10 +101,14 @@ final class AcoEncoder extends Converter<AcoFile, List<int>> {
     }
     final PsBinaryWriter writer = PsBinaryWriter();
     for (final int version in [if (file.includesVersionOne || file.version < 2) 1, if (file.version >= 2) 2]) {
+      final List<AcoSwatch> swatches = version == 1 ? file.versionOneSwatches ?? file.swatches : file.swatches;
+      if (swatches.length > 0xffff) {
+        throw const SwatchWriteException(message: 'An ACO section holds at most 65535 swatches');
+      }
       writer
         ..writeUint16(version)
-        ..writeUint16(file.swatches.length);
-      for (final AcoSwatch swatch in file.swatches) {
+        ..writeUint16(swatches.length);
+      for (final AcoSwatch swatch in swatches) {
         writer
           ..writeUint16(swatch.colorSpaceId)
           ..writeUint16List(swatch.components);
@@ -104,6 +119,7 @@ final class AcoEncoder extends Converter<AcoFile, List<int>> {
         }
       }
     }
+    writer.writeBytes(file.trailingData);
     return writer.takeBytes();
   }
 }
