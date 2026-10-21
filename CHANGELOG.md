@@ -1,5 +1,10 @@
 # 📰 SwatchKit changelog
 
+## v0.2.1
+Released on October 22, 2026.
+
+* **FEAT**: Preserved opaque ASE data and independent ACO sections. ([#a43fc04](https://github.com/focale-editor/swatchkit/commit/a43fc04))
+
 ## v0.2.0
 Released on October 10, 2026.
 
